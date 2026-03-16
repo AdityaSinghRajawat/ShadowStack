@@ -1,0 +1,30 @@
+# Compiled Go binaries
+/shadowStack
+*.exe
+*.exe~
+*.test
+
+# eBPF Generated Files (Created by bpf2go)
+internal/ebpf/*_bpfel.go
+internal/ebpf/*_bpfel.o
+internal/ebpf/*_bpfeb.go
+internal/ebpf/*_bpfeb.o
+
+# Go test and coverage artifacts
+*.out
+coverage.txt
+coverage.html
+
+# IDEs and Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Vendor directory (if you choose to use go mod vendor)
+vendor/

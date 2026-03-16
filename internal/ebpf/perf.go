@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"shadowStack/internal/protocol"
 
@@ -21,10 +23,19 @@ type SQLEvent struct {
 
 type ParsedQuery struct {
 	PID   uint32
+	Comm  string
 	Query string
 }
 
-// Accept a channel to send events out
+func getProcessName(pid uint32) string {
+	path := fmt.Sprintf("/proc/%d/comm", pid)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func ReadRingBuf(objs *shadowstackObjects, eventsChan chan<- ParsedQuery) error {
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
@@ -50,9 +61,10 @@ func ReadRingBuf(objs *shadowstackObjects, eventsChan chan<- ParsedQuery) error 
 
 		query, err := protocol.ParsePostgresQuery(payloadBytes)
 		if err == nil {
-			// Send the clean query straight to the UI channel
+			comm := getProcessName(event.PID)
 			eventsChan <- ParsedQuery{
 				PID:   event.PID,
+				Comm:  comm,
 				Query: query,
 			}
 		}

@@ -40,6 +40,7 @@ func main() {
 		for event := range eventsChan {
 			p.Send(ui.QueryMsg{
 				PID:   event.PID,
+				Comm:  event.Comm,
 				Query: event.Query,
 			})
 		}

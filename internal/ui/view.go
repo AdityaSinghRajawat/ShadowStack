@@ -15,7 +15,7 @@ var (
 			Foreground(lipgloss.Color("#00FFAA")).
 			MarginBottom(1).
 			Underline(true)
-	pidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Width(12)
+	pidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Width(20)
 	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).MarginTop(1)
 )
 
@@ -42,12 +42,13 @@ func (m Model) View() string {
 		b.WriteString("Listening for database traffic... (Send a query!)\n")
 	} else {
 		for _, q := range m.queries {
-			pid := pidStyle.Render(fmt.Sprintf("[PID: %d]", q.PID))
+			// Combine the process name and PID into a single clean tag: [test: 33544]
+			tag := fmt.Sprintf("[%s: %d]", q.Comm, q.PID)
+			pidStr := pidStyle.Render(tag)
 
-			// Pass the query through our new syntax highlighter
 			highlightedQuery := highlightSQL(q.Query)
 
-			b.WriteString(fmt.Sprintf("%s %s\n", pid, highlightedQuery))
+			b.WriteString(fmt.Sprintf("%s %s\n", pidStr, highlightedQuery))
 		}
 	}
 

@@ -1,6 +1,6 @@
 //go:build ignore
 
-// --- 1. Minimal eBPF Headers (Self-Contained for macOS Cross-Compilation) ---
+// --- 1. Minimal eBPF Headers (Self-Contained) ---
 typedef unsigned char __u8;
 typedef unsigned short __u16;
 typedef unsigned int __u32;
@@ -11,13 +11,11 @@ typedef unsigned long long __u64;
 
 #define BPF_MAP_TYPE_RINGBUF 27
 
-// Manually mapping BPF helper functions to their Linux Kernel instruction IDs
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) = (void *) 131;
 static void (*bpf_ringbuf_submit)(void *data, __u64 flags) = (void *) 132;
 static __u64 (*bpf_get_current_pid_tgid)(void) = (void *) 14;
 static long (*bpf_skb_load_bytes)(const void *skb, __u32 offset, void *to, __u32 len) = (void *) 26;
 
-// The network packet structure
 struct __sk_buff {
     __u32 len;
     __u32 pkt_type;
@@ -68,33 +66,37 @@ struct sql_event {
 
 SEC("socket")
 int socket_handler(struct __sk_buff *skb) {
-    // Only process packets that have data (payload)
-    if (skb->len == 0) {
+    __u32 copy_len = skb->len;
+
+    // 1. Check length immediately
+    if (copy_len == 0) {
         return 0;
     }
 
-    // Reserve space in the ring buffer
+    // 2. Cap at 255 to ensure it fits our 256-byte array perfectly
+    if (copy_len > 255) {
+        copy_len = 255;
+    }
+
+    // 3. Reserve memory in the ring buffer
     struct sql_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        return 0; // Drop if buffer is full
+        return 0; 
     }
 
     e->pid = bpf_get_current_pid_tgid() >> 32;
-    
-    // Calculate how much data to copy (max 256 bytes)
-    __u32 copy_len = skb->len;
-    if (copy_len > sizeof(e->payload)) {
-        copy_len = sizeof(e->payload);
-    }
     e->payload_len = copy_len;
 
-    // Load the packet bytes into our event struct
-    bpf_skb_load_bytes(skb, 0, e->payload, copy_len);
+    // 4. THE VERIFIER FIX: 
+    // We use a bitwise AND to force the verifier's internal register state to know 
+    // the absolute max is 255. Then we re-assert it is > 0 right before the call.
+    copy_len &= 0xFF; 
+    if (copy_len > 0) {
+        bpf_skb_load_bytes(skb, 0, e->payload, copy_len);
+    }
 
-    // Submit the event to userspace (Go)
     bpf_ringbuf_submit(e, 0);
-
-    return 0; // Return 0 to let the packet continue normally
+    return 0;
 }
 
 char _license[] SEC("license") = "GPL";

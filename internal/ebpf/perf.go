@@ -8,9 +8,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cilium/ebpf/ringbuf"
-
 	"shadowStack/internal/protocol"
+
+	"github.com/cilium/ebpf/ringbuf"
 )
 
 type SQLEvent struct {
@@ -19,14 +19,18 @@ type SQLEvent struct {
 	Payload    [256]byte
 }
 
-func ReadRingBuf(objs *shadowstackObjects) error {
+type ParsedQuery struct {
+	PID   uint32
+	Query string
+}
+
+// Accept a channel to send events out
+func ReadRingBuf(objs *shadowstackObjects, eventsChan chan<- ParsedQuery) error {
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
 		return fmt.Errorf("opening ringbuf reader: %v", err)
 	}
 	defer rd.Close()
-
-	fmt.Println("Listening for network packets... (Press Ctrl+C to stop)")
 
 	var event SQLEvent
 	for {
@@ -42,14 +46,15 @@ func ReadRingBuf(objs *shadowstackObjects) error {
 			continue
 		}
 
-		// Get the exact slice of data captured by the kernel
 		payloadBytes := event.Payload[:event.PayloadLen]
 
-		// Use the Protocol Parser to try and find a SQL query!
 		query, err := protocol.ParsePostgresQuery(payloadBytes)
 		if err == nil {
-			// We found a clean query! Print it out beautifully.
-			fmt.Printf("🎯 [PID: %d] Query: %s\n", event.PID, query)
+			// Send the clean query straight to the UI channel
+			eventsChan <- ParsedQuery{
+				PID:   event.PID,
+				Query: query,
+			}
 		}
 	}
 }

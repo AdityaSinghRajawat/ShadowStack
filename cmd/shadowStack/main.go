@@ -5,52 +5,72 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 
 	"shadowStack/internal/ebpf"
+	"shadowStack/internal/protocol"
 	"shadowStack/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	iface := "lo"
-	objs, sockFile, err := ebpf.LoadAndAttach(iface)
+	// 1. Auto-detect active interfaces
+	interfaces, err := net.Interfaces()
 	if err != nil {
-		log.Fatalf("Failed to attach eBPF: %v\n", err)
+		log.Fatalf("Failed to list interfaces: %v", err)
+	}
+
+	var activeIface string
+	for _, iface := range interfaces {
+		// Look for an interface that is UP and has a valid Index
+		if iface.Flags&net.FlagUp != 0 && iface.Index > 0 {
+			// We prioritize 'lo' for local testing, but 'eth0' is a secondary choice
+			if iface.Name == "lo" || iface.Name == "eth0" {
+				activeIface = iface.Name
+				break
+			}
+		}
+	}
+
+	if activeIface == "" {
+		log.Fatal("No active network interface found (tried lo and eth0)")
+	}
+
+	// 2. Load and Attach to the detected interface
+	objs, sockFile, err := ebpf.LoadAndAttach(activeIface)
+	if err != nil {
+		log.Fatalf("Failed to attach eBPF on %s: %v\n", activeIface, err)
 	}
 	defer objs.Close()
 	defer sockFile.Close()
 
-	// 1. Create a channel to pass data from Kernel to UI
+	// 3. Normal ShadowStack Pipeline
 	eventsChan := make(chan ebpf.ParsedQuery, 100)
+	parserFactory := protocol.NewFactory()
 
-	// 2. Start reading the Ring Buffer in the background
 	go func() {
-		if err := ebpf.ReadRingBuf(objs, eventsChan); err != nil {
+		if err := ebpf.ReadRingBuf(objs, eventsChan, parserFactory); err != nil {
 			log.Printf("RingBuf reader error: %v", err)
 		}
 	}()
 
-	// 3. Initialize Bubble Tea UI
 	p := tea.NewProgram(ui.New())
 
-	// 4. Start a background bridge to convert channel events into UI messages
 	go func() {
 		for event := range eventsChan {
 			p.Send(ui.QueryMsg{
-				PID:   event.PID,
-				Comm:  event.Comm,
-				Query: event.Query,
+				PID:    event.PID,
+				Comm:   event.Comm,
+				DBType: event.DBType,
+				Query:  event.Query,
 			})
 		}
 	}()
 
-	// 5. Run the UI (This blocks until the user presses 'q')
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error starting UI: %v\n", err)
 		os.Exit(1)
 	}
-
-	fmt.Println("\nDetaching from kernel and exiting...")
 }

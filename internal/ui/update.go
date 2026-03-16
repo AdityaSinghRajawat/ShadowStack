@@ -5,18 +5,29 @@ import tea "github.com/charmbracelet/bubbletea"
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	// Handle keystrokes
+	// Listen for terminal resize events!
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
 
-	// Handle incoming SQL queries from eBPF
 	case QueryMsg:
 		m.queries = append(m.queries, msg)
-		// Keep the dashboard clean by only showing the last 15 queries
-		if len(m.queries) > 15 {
+
+		// Dynamically calculate how many rows fit on the screen
+		// Reserving 6 lines for the Header, Footer, and spacing
+		maxQueries := m.height - 6
+		if maxQueries < 5 {
+			maxQueries = 5 // Sane minimum
+		}
+
+		// Pop the oldest query if we exceed the screen height
+		if len(m.queries) > maxQueries {
 			m.queries = m.queries[1:]
 		}
 		return m, nil

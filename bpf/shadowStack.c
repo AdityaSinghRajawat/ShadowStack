@@ -27,7 +27,7 @@ struct {
 struct sql_event {
     __u32 pid;
     __u32 payload_len;
-    __u8 payload[256]; 
+    __u8 payload[512]; 
 };
 
 SEC("socket")
@@ -35,7 +35,11 @@ int socket_handler(struct __sk_buff *skb) {
     __u32 copy_len = skb->len;
 
     if (copy_len == 0) return 0;
-    if (copy_len > 255) copy_len = 255;
+    
+    // Check bounds for the new 512-byte buffer
+    if (copy_len > 511) {
+        copy_len = 511;
+    }
 
     struct sql_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) return 0; 
@@ -43,7 +47,8 @@ int socket_handler(struct __sk_buff *skb) {
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->payload_len = copy_len;
 
-    copy_len &= 0xFF; 
+    // Verifier hint for the 512-byte limit (0x1FF is 511)
+    copy_len &= 0x1FF; 
     if (copy_len > 0) {
         bpf_skb_load_bytes(skb, 0, e->payload, copy_len);
     }

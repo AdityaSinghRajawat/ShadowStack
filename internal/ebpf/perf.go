@@ -18,15 +18,17 @@ import (
 type SQLEvent struct {
 	PID        uint32
 	PayloadLen uint32
-	Payload    [256]byte
+	Payload    [512]byte
 }
 
 type ParsedQuery struct {
-	PID   uint32
-	Comm  string
-	Query string
+	PID    uint32
+	Comm   string
+	DBType string
+	Query  string
 }
 
+// getProcessName reads the Linux procfs to find the name of the executable
 func getProcessName(pid uint32) string {
 	path := fmt.Sprintf("/proc/%d/comm", pid)
 	data, err := os.ReadFile(path)
@@ -36,7 +38,11 @@ func getProcessName(pid uint32) string {
 	return strings.TrimSpace(string(data))
 }
 
-func ReadRingBuf(objs *shadowstackObjects, eventsChan chan<- ParsedQuery) error {
+func ReadRingBuf(
+	objs *shadowstackObjects,
+	eventsChan chan<- ParsedQuery,
+	factory *protocol.ParserFactory,
+) error {
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
 		return fmt.Errorf("opening ringbuf reader: %v", err)
@@ -57,15 +63,34 @@ func ReadRingBuf(objs *shadowstackObjects, eventsChan chan<- ParsedQuery) error 
 			continue
 		}
 
+		// Safety check for payload length to avoid slice bounds out of range
+		if event.PayloadLen > uint32(len(event.Payload)) {
+			event.PayloadLen = uint32(len(event.Payload))
+		}
 		payloadBytes := event.Payload[:event.PayloadLen]
 
-		query, err := protocol.ParsePostgresQuery(payloadBytes)
-		if err == nil {
-			comm := getProcessName(event.PID)
-			eventsChan <- ParsedQuery{
-				PID:   event.PID,
-				Comm:  comm,
-				Query: query,
+		// 1. Decode network layers
+		decoded, err := protocol.DecodeNetworkPacket(payloadBytes)
+		if err != nil || decoded == nil {
+			continue
+		}
+
+		// 2. Route to the correct parser based on Port
+		parser := factory.GetParser(decoded.DstPort)
+		if parser == nil {
+			parser = factory.GetParser(decoded.SrcPort)
+		}
+
+		// 3. Parse the specific wire protocol
+		if parser != nil {
+			query, err := parser.Parse(decoded.Payload)
+			if err == nil {
+				eventsChan <- ParsedQuery{
+					PID:    event.PID,
+					Comm:   getProcessName(event.PID),
+					DBType: parser.Name(),
+					Query:  query,
+				}
 			}
 		}
 	}

@@ -16,30 +16,32 @@ Unlike traditional profilers, ShadowStack requires zero code changes, no library
 
 ShadowStack splits logic between the high-performance Linux Kernel and a reactive Go userspace.
 
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Linux Kernel │
-│ │
-│ ┌────────────────────────┐ ┌──────────────────────────────────┐ │
-│ │ eBPF Socket Filter │ ──────▶ │ eBPF Ring Buffer │ │
-│ │ (shadowStack.c) │ │ (High-speed event transport) │ │
-│ └────────────────────────┘ └──────────────────────────────────┘ │
+│                              Linux Kernel                                   │
+│                                                                             │
+│   ┌────────────────────────┐         ┌──────────────────────────────────┐   │
+│   │   eBPF Socket Filter   │ ──────▶ │        eBPF Ring Buffer          │   │
+│   │ (shadowStack.c)        │         │ (High-speed event transport)     │   │
+│   └────────────────────────┘         └──────────────────────────────────┘   │
 └───────────────────────────────────────────────│─────────────────────────────┘
-│
-▼
+                                                │
+                                                ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Userspace (Go) │
-│ │
-│ ┌────────────────────────┐ ┌──────────────────────────────────┐ │
-│ │ eBPF Loader │ ──────▶ │ Wire-Protocol Parsers │ │
-│ │ (internal/ebpf) │ │ (internal/protocol) │ │
-│ └────────────────────────┘ └──────────────────────────────────┘ │
-│ │ │
-│ ▼ │
-│ ┌──────────────────────────────────┐ │
-│ │ Interactive TUI (UI) │ │
-│ │ (internal/ui) │ │
-│ └──────────────────────────────────┘ │
+│                              Userspace (Go)                                 │
+│                                                                             │
+│   ┌────────────────────────┐         ┌──────────────────────────────────┐   │
+│   │      eBPF Loader       │ ──────▶ │     Wire-Protocol Parsers        │   │
+│   │ (internal/ebpf)        │         │ (internal/protocol)              │   │
+│   └────────────────────────┘         └──────────────────────────────────┘   │
+│                                               │                             │
+│                                               ▼                             │
+│                                      ┌──────────────────────────────────┐   │
+│                                      │     Interactive TUI (UI)         │   │
+│                                      │ (internal/ui)                    │   │
+│                                      └──────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## 📂 Project Structure
 
@@ -67,7 +69,6 @@ shadowStack/
 ### Installation & Build
 
 1. **Clone the repository**
-
    ```bash
    git clone https://github.com/yourusername/shadowStack.git
    cd shadowStack
@@ -82,7 +83,6 @@ shadowStack/
 ### Running
 
 Monitor PostgreSQL traffic (Port 5432) instantly:
-
 ```bash
 sudo ./shadowStack --port 5432
 ```

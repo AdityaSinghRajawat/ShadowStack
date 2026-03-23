@@ -13,21 +13,29 @@ var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#00FFAA")).
-			MarginBottom(1).
-			Underline(true)
+			MarginBottom(1)
 
-	// Custom badge styles for our Factory databases
+	// Metrics Dashboard Styles
+	metricBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#444444")).
+			Padding(0, 1).
+			MarginBottom(1)
+
+	metricValueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFAA")).Bold(true)
+	metricLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
 	postgresStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#336791")).Bold(true).Width(12)
 	mysqlStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#E6873C")).Bold(true).Width(12)
 	mongoStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4DB33D")).Bold(true).Width(12)
 	redisStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#D82C20")).Bold(true).Width(12)
 	defaultDBStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA")).Bold(true).Width(12)
 
-	// Fixed width for the Process & PID column
 	pidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Width(16)
 	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).MarginTop(1)
 )
 
+// ... keep getDBStyle and highlightSQL functions exactly the same ...
 func getDBStyle(dbType string) lipgloss.Style {
 	switch dbType {
 	case "PostgreSQL":
@@ -42,13 +50,13 @@ func getDBStyle(dbType string) lipgloss.Style {
 		return defaultDBStyle
 	}
 }
+
 func highlightSQL(query string, dbType string) string {
 	var buf bytes.Buffer
 	lexer := "sql"
 	if dbType == "MongoDB" {
-		lexer = "javascript" // MongoDB queries look like JS/JSON
+		lexer = "javascript"
 	}
-
 	err := quick.Highlight(&buf, query, lexer, "terminal256", "monokai")
 	if err != nil {
 		return query
@@ -57,34 +65,52 @@ func highlightSQL(query string, dbType string) string {
 }
 
 func (m Model) View() string {
-	// Don't render until Bubble Tea tells us the terminal size
 	if m.width == 0 {
-		return "Initializing Ghost-Trace UI..."
+		return "Initializing ShadowStack UI..."
 	}
 
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("🕵️‍♂️ ShadowStack Live Database Traffic"))
+	// 1. Title
+	b.WriteString(titleStyle.Render("🕵️‍♂️ ShadowStack Live Profiler"))
 	b.WriteString("\n")
 
+	// 2. Metrics Dashboard
+	stats := fmt.Sprintf(
+		"%s %s  │  %s %s  │  🐘 %d  🐬 %d  🍃 %d  🔴 %d",
+		metricLabelStyle.Render("TOTAL:"),
+		metricValueStyle.Render(fmt.Sprintf("%d", m.totalQueries)),
+		metricLabelStyle.Render("RPS:"),
+		metricValueStyle.Render(fmt.Sprintf("%.1f", m.rps)),
+		m.dbCounts["PostgreSQL"],
+		m.dbCounts["MySQL"],
+		m.dbCounts["MongoDB"],
+		m.dbCounts["Redis"],
+	)
+
+	// Make the box stretch to terminal width
+	boxWidth := m.width - 2
+	if boxWidth > 0 {
+		b.WriteString(metricBoxStyle.Width(boxWidth).Render(stats))
+		b.WriteString("\n")
+	}
+
+	// 3. Query List
 	if len(m.queries) == 0 {
 		b.WriteString(
 			lipgloss.NewStyle().
 				Italic(true).
 				Foreground(lipgloss.Color("#666666")).
-				Render("Listening for traffic on all ports... (Send a query!)"),
+				Render("Listening for traffic on interface..."),
 		)
 		b.WriteString("\n")
 	} else {
-		// Calculate exactly how much space is left for the SQL query
-		// DB Col (12) + PID Col (16) + Spacing (2) = 30
 		queryMaxWidth := m.width - 30
 		if queryMaxWidth < 20 {
 			queryMaxWidth = 20
 		}
 
 		for _, q := range m.queries {
-			// 1. Render Database Badge
 			dbIcon := q.DBType
 			switch dbIcon {
 			case "PostgreSQL":
@@ -96,24 +122,17 @@ func (m Model) View() string {
 			case "Redis":
 				dbIcon = "🔴 Redis"
 			}
+
 			dbCol := getDBStyle(q.DBType).Render(dbIcon)
+			pidCol := pidStyle.Copy().MaxWidth(16).Render(fmt.Sprintf("[%s:%d]", q.Comm, q.PID))
+			queryCol := lipgloss.NewStyle().MaxWidth(queryMaxWidth).Render(highlightSQL(q.Query, q.DBType))
 
-			// 2. Render Process & PID
-			pidText := fmt.Sprintf("[%s:%d]", q.Comm, q.PID)
-			// MaxWidth gracefully truncates weirdly long process names
-			pidCol := pidStyle.Copy().MaxWidth(16).Render(pidText)
-
-			// 3. Render Syntax-Highlighted Query
-			highlighted := highlightSQL(q.Query, q.DBType)
-			// MaxWidth ensures the text cuts off with ... instead of wrapping
-			queryCol := lipgloss.NewStyle().MaxWidth(queryMaxWidth).Render(highlighted)
-
-			// 4. Join them into a perfect row!
 			row := lipgloss.JoinHorizontal(lipgloss.Left, dbCol, " ", pidCol, " ", queryCol)
 			b.WriteString(row + "\n")
 		}
 	}
 
+	// 4. Footer
 	b.WriteString(
 		helpStyle.Render(
 			fmt.Sprintf("\nPress 'q' or 'ctrl+c' to exit | Window: %dx%d", m.width, m.height),

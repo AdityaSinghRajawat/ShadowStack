@@ -1,11 +1,14 @@
 package ui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	// Listen for terminal resize events!
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -16,17 +19,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case QueryMsg:
-		m.queries = append(m.queries, msg)
+	case TickMsg:
+		// 1. Calculate RPS (queries in the last 1 second)
+		now := time.Now()
+		cutoff := now.Add(-time.Second)
 
-		// Dynamically calculate how many rows fit on the screen
-		// Reserving 6 lines for the Header, Footer, and spacing
-		maxQueries := m.height - 6
-		if maxQueries < 5 {
-			maxQueries = 5 // Sane minimum
+		var recent int
+		var newQueryTimes []time.Time
+
+		for _, t := range m.queryTimes {
+			if t.After(cutoff) {
+				recent++
+				newQueryTimes = append(newQueryTimes, t)
+			}
 		}
 
-		// Pop the oldest query if we exceed the screen height
+		m.rps = float64(recent)
+		m.queryTimes = newQueryTimes // Shrink the sliding window
+
+		// 2. Schedule the next tick
+		return m, tickCmd()
+
+	case QueryMsg:
+		// Update Metrics
+		m.totalQueries++
+		m.dbCounts[msg.DBType]++
+		m.queryTimes = append(m.queryTimes, time.Now())
+
+		m.queries = append(m.queries, msg)
+
+		// Reserving space for the new Metrics Header (10 lines)
+		maxQueries := m.height - 10
+		if maxQueries < 5 {
+			maxQueries = 5
+		}
+
 		if len(m.queries) > maxQueries {
 			m.queries = m.queries[1:]
 		}

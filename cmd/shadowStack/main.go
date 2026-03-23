@@ -61,10 +61,13 @@ func main() {
 	go func() {
 		for event := range eventsChan {
 			p.Send(ui.QueryMsg{
-				PID:    event.PID,
-				Comm:   event.Comm,
-				DBType: event.DBType,
-				Query:  event.Query,
+				PID:      event.PID,
+				Comm:     event.Comm,
+				DBType:   event.DBType,
+				Query:    event.Query,
+				Port:     event.Port,
+				IsUpdate: event.IsUpdate,
+				Latency:  event.Latency,
 			})
 		}
 	}()

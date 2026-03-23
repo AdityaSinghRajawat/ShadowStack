@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/charmbracelet/lipgloss"
@@ -35,7 +36,6 @@ var (
 	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).MarginTop(1)
 )
 
-// ... keep getDBStyle and highlightSQL functions exactly the same ...
 func getDBStyle(dbType string) lipgloss.Style {
 	switch dbType {
 	case "PostgreSQL":
@@ -77,11 +77,17 @@ func (m Model) View() string {
 
 	// 2. Metrics Dashboard
 	stats := fmt.Sprintf(
-		"%s %s  │  %s %s  │  🐘 %d  🐬 %d  🍃 %d  🔴 %d",
+		"%s %s  │  %s %s  │  %s %s  │  %s %s  │  🐘 %d  🐬 %d  🍃 %d  🔴 %d",
 		metricLabelStyle.Render("TOTAL:"),
 		metricValueStyle.Render(fmt.Sprintf("%d", m.totalQueries)),
 		metricLabelStyle.Render("RPS:"),
 		metricValueStyle.Render(fmt.Sprintf("%.1f", m.rps)),
+		metricLabelStyle.Render("SLOWEST:"),
+		metricValueStyle.Copy().
+			Foreground(lipgloss.Color("#FF4444")).
+			Render(m.slowest.Round(time.Millisecond/10).String()),
+		metricLabelStyle.Render("FASTEST:"),
+		metricValueStyle.Render(m.fastest.Round(time.Millisecond/10).String()),
 		m.dbCounts["PostgreSQL"],
 		m.dbCounts["MySQL"],
 		m.dbCounts["MongoDB"],
@@ -105,7 +111,8 @@ func (m Model) View() string {
 		)
 		b.WriteString("\n")
 	} else {
-		queryMaxWidth := m.width - 30
+		// Calculate space for SQL query: DB (12) + PID (16) + Latency (12) + Spaces (3) = 43
+		queryMaxWidth := m.width - 45
 		if queryMaxWidth < 20 {
 			queryMaxWidth = 20
 		}
@@ -125,9 +132,24 @@ func (m Model) View() string {
 
 			dbCol := getDBStyle(q.DBType).Render(dbIcon)
 			pidCol := pidStyle.Copy().MaxWidth(16).Render(fmt.Sprintf("[%s:%d]", q.Comm, q.PID))
+
+			// Render Latency Tag
+			latencyStr := "[pending]"
+			latColor := "#888888" // Gray for pending
+			if q.Latency > 0 {
+				latencyStr = fmt.Sprintf("[%s]", q.Latency.Round(time.Millisecond/10).String())
+				if q.Latency > 50*time.Millisecond {
+					latColor = "#FF4444" // Red if slow
+				} else {
+					latColor = "#00FFAA" // Green if fast
+				}
+			}
+			latCol := lipgloss.NewStyle().Foreground(lipgloss.Color(latColor)).Width(12).Render(latencyStr)
+
 			queryCol := lipgloss.NewStyle().MaxWidth(queryMaxWidth).Render(highlightSQL(q.Query, q.DBType))
 
-			row := lipgloss.JoinHorizontal(lipgloss.Left, dbCol, " ", pidCol, " ", queryCol)
+			// Join them all together!
+			row := lipgloss.JoinHorizontal(lipgloss.Left, dbCol, " ", pidCol, " ", latCol, " ", queryCol)
 			b.WriteString(row + "\n")
 		}
 	}

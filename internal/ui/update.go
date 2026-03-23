@@ -20,7 +20,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case TickMsg:
-		// 1. Calculate RPS (queries in the last 1 second)
+		// Calculate RPS (queries in the last 1 second)
 		now := time.Now()
 		cutoff := now.Add(-time.Second)
 
@@ -35,20 +35,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.rps = float64(recent)
-		m.queryTimes = newQueryTimes // Shrink the sliding window
+		m.queryTimes = newQueryTimes
 
-		// 2. Schedule the next tick
 		return m, tickCmd()
 
 	case QueryMsg:
-		// Update Metrics
+		if msg.IsUpdate {
+			// Find the pending query and update its latency
+			for i := len(m.queries) - 1; i >= 0; i-- {
+				if m.queries[i].Port == msg.Port && m.queries[i].Latency == 0 {
+					m.queries[i].Latency = msg.Latency
+
+					// Update global Slowest/Fastest records
+					if msg.Latency > m.slowest {
+						m.slowest = msg.Latency
+					}
+					if m.fastest == 0 || msg.Latency < m.fastest {
+						m.fastest = msg.Latency
+					}
+					break
+				}
+			}
+			return m, nil
+		}
+
+		// New query: Update metrics and append
 		m.totalQueries++
 		m.dbCounts[msg.DBType]++
 		m.queryTimes = append(m.queryTimes, time.Now())
 
 		m.queries = append(m.queries, msg)
 
-		// Reserving space for the new Metrics Header (10 lines)
 		maxQueries := m.height - 10
 		if maxQueries < 5 {
 			maxQueries = 5

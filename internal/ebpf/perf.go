@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time" // Imported for latency calculation
 
 	"shadowStack/internal/protocol"
 
@@ -22,13 +23,15 @@ type SQLEvent struct {
 }
 
 type ParsedQuery struct {
-	PID    uint32
-	Comm   string
-	DBType string
-	Query  string
+	PID      uint32
+	Comm     string
+	DBType   string
+	Query    string
+	Port     uint16
+	IsUpdate bool
+	Latency  time.Duration
 }
 
-// getProcessName reads the Linux procfs to find the name of the executable
 func getProcessName(pid uint32) string {
 	path := fmt.Sprintf("/proc/%d/comm", pid)
 	data, err := os.ReadFile(path)
@@ -49,6 +52,9 @@ func ReadRingBuf(
 	}
 	defer rd.Close()
 
+	// STATEFUL TRACKER: Maps Client Port -> Start Time
+	inFlight := make(map[uint16]time.Time)
+
 	var event SQLEvent
 	for {
 		record, err := rd.Read()
@@ -56,40 +62,56 @@ func ReadRingBuf(
 			if errors.Is(err, ringbuf.ErrClosed) {
 				return nil
 			}
-			return fmt.Errorf("reading from ringbuf: %v", err)
+			continue
 		}
 
 		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			continue
 		}
 
-		// Safety check for payload length to avoid slice bounds out of range
 		if event.PayloadLen > uint32(len(event.Payload)) {
 			event.PayloadLen = uint32(len(event.Payload))
 		}
 		payloadBytes := event.Payload[:event.PayloadLen]
 
-		// 1. Decode network layers
 		decoded, err := protocol.DecodeNetworkPacket(payloadBytes)
 		if err != nil || decoded == nil {
 			continue
 		}
 
-		// 2. Route to the correct parser based on Port
-		parser := factory.GetParser(decoded.DstPort)
-		if parser == nil {
-			parser = factory.GetParser(decoded.SrcPort)
-		}
+		isRequest := factory.GetParser(decoded.DstPort) != nil
+		isResponse := factory.GetParser(decoded.SrcPort) != nil
 
-		// 3. Parse the specific wire protocol
-		if parser != nil {
+		if isRequest {
+			// 🛡️ DEDUPLICATION FIX: If the stopwatch is already running for this port,
+			// this is just the loopback echo. Ignore it!
+			if _, exists := inFlight[decoded.SrcPort]; exists {
+				continue
+			}
+
+			parser := factory.GetParser(decoded.DstPort)
 			query, err := parser.Parse(decoded.Payload)
 			if err == nil {
+				inFlight[decoded.SrcPort] = time.Now()
+
 				eventsChan <- ParsedQuery{
 					PID:    event.PID,
 					Comm:   getProcessName(event.PID),
 					DBType: parser.Name(),
 					Query:  query,
+					Port:   decoded.SrcPort,
+				}
+			}
+		} else if isResponse {
+			clientPort := decoded.DstPort
+			if startTime, exists := inFlight[clientPort]; exists {
+				latency := time.Since(startTime)
+				delete(inFlight, clientPort)
+
+				eventsChan <- ParsedQuery{
+					IsUpdate: true,
+					Port:     clientPort,
+					Latency:  latency,
 				}
 			}
 		}

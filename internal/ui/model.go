@@ -7,10 +7,13 @@ import (
 )
 
 type QueryMsg struct {
-	PID    uint32
-	Comm   string
-	DBType string
-	Query  string
+	PID      uint32
+	Comm     string
+	DBType   string
+	Query    string
+	Port     uint16
+	IsUpdate bool
+	Latency  time.Duration
 }
 
 // TickMsg is used to trigger RPS calculations every second
@@ -26,6 +29,10 @@ type Model struct {
 	queryTimes   []time.Time
 	rps          float64
 	dbCounts     map[string]int
+
+	// New Latency Metrics
+	slowest time.Duration
+	fastest time.Duration
 }
 
 func New() Model {

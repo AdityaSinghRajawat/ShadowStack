@@ -14,13 +14,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// 1. FILTER TYPING MODE
+		if m.isFiltering {
+			switch msg.Type {
+			case tea.KeyEnter, tea.KeyEsc:
+				m.isFiltering = false // Exit filter typing mode
+			case tea.KeyBackspace, tea.KeyDelete:
+				if len(m.filterText) > 0 {
+					m.filterText = m.filterText[:len(m.filterText)-1]
+				}
+			case tea.KeyRunes:
+				m.filterText += string(msg.Runes)
+			case tea.KeySpace:
+				m.filterText += " "
+			}
+			return m, nil
+		}
+
+		// 2. NORMAL NAVIGATION CONTROLS
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "/":
+			if !m.isModalOpen {
+				m.isFiltering = true
+				m.isPaused = false // Resume scrolling while searching
+			}
+		case "up":
+			if !m.isModalOpen {
+				m.isPaused = true
+				if m.selectedIndex > 0 {
+					m.selectedIndex--
+				}
+			}
+		case "down":
+			if !m.isModalOpen {
+				// We don't know the exact filtered length here easily,
+				// so we just increment and let View() clamp it.
+				m.selectedIndex++
+			}
+		case "enter":
+			if m.isPaused {
+				m.isModalOpen = !m.isModalOpen
+			}
+		case "esc":
+			m.isModalOpen = false
+			m.isPaused = false
 		}
 
 	case TickMsg:
-		// Calculate RPS (queries in the last 1 second)
 		now := time.Now()
 		cutoff := now.Add(-time.Second)
 
@@ -41,12 +83,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case QueryMsg:
 		if msg.IsUpdate {
-			// Find the pending query and update its latency
 			for i := len(m.queries) - 1; i >= 0; i-- {
 				if m.queries[i].Port == msg.Port && m.queries[i].Latency == 0 {
 					m.queries[i].Latency = msg.Latency
-
-					// Update global Slowest/Fastest records
 					if msg.Latency > m.slowest {
 						m.slowest = msg.Latency
 					}
@@ -59,21 +98,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// New query: Update metrics and append
 		m.totalQueries++
 		m.dbCounts[msg.DBType]++
 		m.queryTimes = append(m.queryTimes, time.Now())
 
 		m.queries = append(m.queries, msg)
 
-		maxQueries := m.height - 10
-		if maxQueries < 5 {
-			maxQueries = 5
-		}
-
-		if len(m.queries) > maxQueries {
+		// HUGE ARCHITECTURE UPGRADE:
+		// Keep up to 1000 queries in memory so the filter has historical data to search!
+		if len(m.queries) > 1000 {
 			m.queries = m.queries[1:]
 		}
+
 		return m, nil
 	}
 

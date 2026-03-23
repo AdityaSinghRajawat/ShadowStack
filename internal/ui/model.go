@@ -16,7 +16,6 @@ type QueryMsg struct {
 	Latency  time.Duration
 }
 
-// TickMsg is used to trigger RPS calculations every second
 type TickMsg time.Time
 
 type Model struct {
@@ -30,19 +29,28 @@ type Model struct {
 	rps          float64
 	dbCounts     map[string]int
 
-	// New Latency Metrics
+	// Latency Metrics
 	slowest time.Duration
 	fastest time.Duration
+
+	// Interactive State
+	selectedIndex int
+	isPaused      bool
+	isModalOpen   bool
+
+	// Filter State
+	isFiltering bool
+	filterText  string
 }
 
 func New() Model {
 	return Model{
-		queries:  make([]QueryMsg, 0),
-		dbCounts: make(map[string]int),
+		queries:       make([]QueryMsg, 0),
+		dbCounts:      make(map[string]int),
+		selectedIndex: -1,
 	}
 }
 
-// Init starts the ticking clock for live metrics
 func (m Model) Init() tea.Cmd {
 	return tickCmd()
 }

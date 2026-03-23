@@ -264,9 +264,9 @@ func (m Model) View() string {
 			helpStyle.Render("Press 'Enter' to confirm or 'Esc' to clear"),
 		))
 	} else if m.isPaused {
-		b.WriteString(helpStyle.Render(fmt.Sprintf("\nArrows: Navigate | Enter: Inspect | Esc: Resume | Window: %dx%d", m.width, m.height)))
+		b.WriteString(helpStyle.Render(fmt.Sprintf("\nArrows: Navigate | Enter: Inspect | 's': Save JSON | Esc: Resume | Window: %dx%d", m.width, m.height)))
 	} else {
-		b.WriteString(helpStyle.Render(fmt.Sprintf("\nPress 'Up' to pause | '/' to filter | 'q' to exit | Window: %dx%d", m.width, m.height)))
+		b.WriteString(helpStyle.Render(fmt.Sprintf("\nPress 'Up' to pause | '/' to filter | 's' to Save | 'q' to exit | Window: %dx%d", m.width, m.height)))
 	}
 
 	return b.String()

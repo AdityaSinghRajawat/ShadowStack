@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,6 +63,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.isModalOpen = false
 			m.isPaused = false
+		case "s":
+			// THE EXPORT FEATURE
+			go func(queriesToSave []QueryMsg) {
+				// We do this in a goroutine so it doesn't freeze the UI while writing
+				saveToFile(queriesToSave)
+			}(m.queries)
 		}
 
 	case TickMsg:
@@ -114,4 +123,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// saveToFile dumps the current in-memory queries to a JSON file
+func saveToFile(queries []QueryMsg) {
+	if len(queries) == 0 {
+		return
+	}
+
+	fileName := fmt.Sprintf("shadowstack_export_%d.json", time.Now().Unix())
+
+	// Convert the queries to pretty-printed JSON
+	fileData, err := json.MarshalIndent(queries, "", "  ")
+	if err != nil {
+		return // Silently fail on error to keep UI safe
+	}
+
+	os.WriteFile(fileName, fileData, 0644)
 }

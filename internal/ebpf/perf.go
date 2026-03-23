@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time" // Imported for latency calculation
+	"time"
 
 	"shadowStack/internal/protocol"
+	"shadowStack/internal/ui"
 
 	"github.com/cilium/ebpf/ringbuf"
 )
@@ -20,16 +21,6 @@ type SQLEvent struct {
 	PID        uint32
 	PayloadLen uint32
 	Payload    [512]byte
-}
-
-type ParsedQuery struct {
-	PID      uint32
-	Comm     string
-	DBType   string
-	Query    string
-	Port     uint16
-	IsUpdate bool
-	Latency  time.Duration
 }
 
 func getProcessName(pid uint32) string {
@@ -43,7 +34,7 @@ func getProcessName(pid uint32) string {
 
 func ReadRingBuf(
 	objs *shadowstackObjects,
-	eventsChan chan<- ParsedQuery,
+	eventsChan chan<- ui.QueryMsg,
 	factory *protocol.ParserFactory,
 ) error {
 	rd, err := ringbuf.NewReader(objs.Events)
@@ -52,7 +43,6 @@ func ReadRingBuf(
 	}
 	defer rd.Close()
 
-	// STATEFUL TRACKER: Maps Client Port -> Start Time
 	inFlight := make(map[uint16]time.Time)
 
 	var event SQLEvent
@@ -83,8 +73,6 @@ func ReadRingBuf(
 		isResponse := factory.GetParser(decoded.SrcPort) != nil
 
 		if isRequest {
-			// 🛡️ DEDUPLICATION FIX: If the stopwatch is already running for this port,
-			// this is just the loopback echo. Ignore it!
 			if _, exists := inFlight[decoded.SrcPort]; exists {
 				continue
 			}
@@ -94,7 +82,7 @@ func ReadRingBuf(
 			if err == nil {
 				inFlight[decoded.SrcPort] = time.Now()
 
-				eventsChan <- ParsedQuery{
+				eventsChan <- ui.QueryMsg{
 					PID:    event.PID,
 					Comm:   getProcessName(event.PID),
 					DBType: parser.Name(),
@@ -108,7 +96,7 @@ func ReadRingBuf(
 				latency := time.Since(startTime)
 				delete(inFlight, clientPort)
 
-				eventsChan <- ParsedQuery{
+				eventsChan <- ui.QueryMsg{
 					IsUpdate: true,
 					Port:     clientPort,
 					Latency:  latency,

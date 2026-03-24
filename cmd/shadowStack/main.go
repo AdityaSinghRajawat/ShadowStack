@@ -1,23 +1,30 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
-
 	"shadowStack/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var (
+	remoteTarget = flag.String("remote", "", "Remote DB address (e.g. cluster0.mongodb.net:27017)")
+	localPort    = flag.String("port", "27017", "Local port to listen on for proxy")
+)
+
 func main() {
+	flag.Parse()
 	eventsChan := make(chan ui.QueryMsg, 100)
 
-	// startEngine is defined differently based on the OS we compile for
-	go startEngine(eventsChan)
+	if *remoteTarget != "" {
+		go startProxyEngine(*localPort, *remoteTarget, eventsChan) //
+	} else {
+		go startEngine(eventsChan) //
+	}
 
 	p := tea.NewProgram(ui.New(), tea.WithAltScreen())
-
-	// Push events directly into BubbleTea
 	go func() {
 		for event := range eventsChan {
 			p.Send(event)

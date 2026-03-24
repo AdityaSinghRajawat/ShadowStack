@@ -21,16 +21,29 @@ func (p *MongoDBParser) Parse(payload []byte) (string, error) {
 	}
 
 	body := string(payload[16:])
-	// Improved regex to catch command, collection, and operators
 	re := regexp.MustCompile(`[a-zA-Z0-9_$]{2,}`)
 	matches := re.FindAllString(body, -1)
 
 	if len(matches) >= 2 {
-		// Format: db.collection.command({args})
+		ignoredCmds := map[string]bool{
+			"ismaster": true, "isMaster": true, "hello": true, "helloOk": true,
+			"ping": true, "buildInfo": true, "getLog": true,
+			"saslStart": true, "saslContinue": true,
+		}
+
+		// Scan the first 5 words of the payload.
+		// If ANY of them are in our ignore list, drop the query.
+		for i := 0; i < len(matches) && i < 5; i++ {
+			if ignoredCmds[matches[i]] {
+				return "", fmt.Errorf("ignored background noise")
+			}
+		}
+
+		command := matches[0]
 		return fmt.Sprintf(
 			"db.%s.%s(%s)",
 			matches[1],
-			matches[0],
+			command,
 			strings.Join(matches[2:], " "),
 		), nil
 	}

@@ -7,7 +7,7 @@ generate:
 	go generate ./...
 
 build:
-	go build -o shadowStack cmd/shadowStack/main.go
+	go build -o shadowStack ./cmd/shadowStack
 
 vmlinux:
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > bpf/vmlinux.h

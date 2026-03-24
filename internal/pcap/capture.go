@@ -1,3 +1,5 @@
+//go:build darwin
+
 package pcap
 
 import (
@@ -43,10 +45,7 @@ func RunPcapCapture(
 			continue
 		}
 
-		srcPort := uint16(tcp.SrcPort)
-		dstPort := uint16(tcp.DstPort)
-		payload := appLayer.Payload()
-
+		srcPort, dstPort, payload := uint16(tcp.SrcPort), uint16(tcp.DstPort), appLayer.Payload()
 		isRequest := factory.GetParser(dstPort) != nil
 		isResponse := factory.GetParser(srcPort) != nil
 
@@ -54,30 +53,16 @@ func RunPcapCapture(
 			if _, exists := inFlight[srcPort]; exists {
 				continue
 			}
-
 			parser := factory.GetParser(dstPort)
-			query, err := parser.Parse(payload)
-			if err == nil {
+			if query, err := parser.Parse(payload); err == nil {
 				inFlight[srcPort] = time.Now()
-
-				eventsChan <- ui.QueryMsg{
-					PID:    0, // PID extraction via PCAP requires lsof, showing generic name
-					Comm:   "macOS",
-					DBType: parser.Name(),
-					Query:  query,
-					Port:   srcPort,
-				}
+				eventsChan <- ui.QueryMsg{Comm: "macOS", DBType: parser.Name(), Query: query, Port: srcPort}
 			}
 		} else if isResponse {
 			if startTime, exists := inFlight[dstPort]; exists {
 				latency := time.Since(startTime)
 				delete(inFlight, dstPort)
-
-				eventsChan <- ui.QueryMsg{
-					IsUpdate: true,
-					Port:     dstPort,
-					Latency:  latency,
-				}
+				eventsChan <- ui.QueryMsg{IsUpdate: true, Port: dstPort, Latency: latency}
 			}
 		}
 	}

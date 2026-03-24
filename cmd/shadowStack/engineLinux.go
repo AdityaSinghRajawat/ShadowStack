@@ -7,19 +7,18 @@ import (
 	"net"
 
 	"shadowStack/internal/ebpf"
+	"shadowStack/internal/pcap" // Added to support proxy
 	"shadowStack/internal/protocol"
 	"shadowStack/internal/ui"
 )
 
 func startEngine(eventsChan chan<- ui.QueryMsg) {
-	// Auto-detect interfaces
 	activeIface := getInterface([]string{"lo", "eth0"})
 	if activeIface == "" {
 		log.Fatal("No active network interface found")
 	}
 
 	parserFactory := protocol.NewFactory()
-
 	objs, sockFile, err := ebpf.LoadAndAttach(activeIface)
 	if err != nil {
 		log.Fatalf("Failed to attach eBPF on %s: %v\n", activeIface, err)
@@ -29,6 +28,14 @@ func startEngine(eventsChan chan<- ui.QueryMsg) {
 
 	if err := ebpf.ReadRingBuf(objs, eventsChan, parserFactory); err != nil {
 		log.Printf("RingBuf reader error: %v", err)
+	}
+}
+
+// Added to fix "undefined" error on Linux
+func startProxyEngine(localPort, remoteAddr string, eventsChan chan<- ui.QueryMsg) {
+	parserFactory := protocol.NewFactory()
+	if err := pcap.RunProxy(localPort, remoteAddr, eventsChan, parserFactory); err != nil {
+		log.Fatalf("Proxy Engine error: %v", err)
 	}
 }
 
